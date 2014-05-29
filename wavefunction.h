@@ -4,6 +4,8 @@
 #include<armadillo>
 #include<vector>
 
+#include"element.h"
+
 using namespace arma;
 using namespace std;
 
@@ -12,12 +14,14 @@ class wavefunction
 	public:
 	wavefunction();
 
-	bool initialize_polynomial(unsigned int DOF, vector<double> nodes);
+	bool create_elements(vector<double> endpoints, vector<double> nodes, unsigned int DOF);	//initialized elements and polynomials
+	bool calculate_element_coefficients();
+
+	double at(double x);
 
 	private:
-	bool polynomial_initialized;
-	
-	Mat<double> polynomial_coefficients;
+	vector<element>		elements;
+	vector<double>		endpoints;	//endpoints of elements in increasing order
 };
 
 #endif
