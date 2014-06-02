@@ -6,9 +6,11 @@
 
 #include "element.h"
 
+
 using namespace arma;
 using namespace std;
 
+//used in calculating variable row derivatives
 double factorial(int n)
 {
 	if(n <= 0)  return 1 ; 		//safeguard 0 and negative values
@@ -19,43 +21,46 @@ double factorial(int n)
 
 element::element()
 {
-	polynomial_initialized=false;	//the polynomial matrix starts out uninitialized
-	element_solved=false;
-	nDOF=0;
-	nnodes=0;
 	top=1;
 	bottom=-1;
+
+	polynomial_initialized=false;	//the polynomial matrix starts out uninitialized
+	element_solved=false;
 }
 
 element::element(unsigned int DOF, vector<double> nodes, double arg_bottom, double arg_top)
 {
-	polynomial_initialized=false;
-	element_solved=false;
 	top = arg_top;
 	bottom = arg_bottom;
+
+	polynomial_initialized=false;
+	element_solved=false;
 
 	initialize_polynomial(DOF, nodes);
 }
 
 bool element::initialize_polynomial(unsigned int DOF, vector<double> nodes)
 {
+#ifdef ERROR_CHECKING
+	//Are we overwriting the polynomial?
 	if(polynomial_initialized)
 		cout<<"Warning. The polynomial has already been initialized.  Reinitializing anyway";
 
+	//Is the value for Degrees of Freedom sane?
 	if(DOF<1)
 	{
 		cout<<"Error. Bad value for DOF";
 		return false;
 	}
 
-	//add check to remove duplicate nodes, make sure they are in range and use -1, 1
-	
+	//Do we have enough nodes
 	if(nodes.size()<2)
 	{
 		cout<<"Error. Too few nodes to construct polynomial.";
 		return false;
 	}
 
+	//are the nodes placed correctly
 	for(int i=0; i<nodes.size(); i++)
 	{
 		if(nodes.at(i)<-1 || nodes.at(i)>1)
@@ -64,48 +69,44 @@ bool element::initialize_polynomial(unsigned int DOF, vector<double> nodes)
 			return false;
 		}
 	}
+#endif
 
-	Mat<double> system(DOF*nodes.size(), DOF*nodes.size());;	//set up a matrix to fill with our values
+	Mat<double> system(DOF*nodes.size(), DOF*nodes.size());;				//set up a matrix to fill with our values
 
 	for(int i=0; i<nodes.size(); i++)
 	{
 		for(int j=0; j<DOF; j++)
 		{
-			for(int k=0; k<DOF*nodes.size(); k++)
-			{
-				if(k<j)
-					system(i*DOF+j, k) = 0;		//derivative of a constant
-				if(k==j)
-					system(i*DOF+j, k) = 1;		//is the original constant
-				if(k>j)
-					system(i*DOF+j, k) = pow(nodes.at(i), (double)(k-j))*factorial(k)/factorial(k-j);	//add in the correct values
-			}
+			system.row(i*DOF+j) = variable_row(nodes.at(i), DOF*nodes.size(), j);	//insert the correct coefficients
 		}
 	}
 
-	polynomial_coefficients = system.i();				//invert the matrix to find the polynomial coefficients
-	nDOF=DOF;
-	nnodes=nodes.size();
+	polynomial_coefficients = system.i();	//invert the matrix to find the polynomial coefficients
+
 	polynomial_initialized = true;		//the polynomial has been initialized
 	return true;				//we succeeded
 }
 
 Mat<double> element::get_polynomial()
 {
+#ifdef ERROR_CHECKING
 	if(!polynomial_initialized)
 	{
 		cout<<"Error, reading uninitialized polynomial coefficients.";
 	}
+#endif
 
 	return polynomial_coefficients;
 }
 
 void element::set_polynomial(Mat<double> coefficients)
 {
+#ifdef ERROR_CHECKING
 	if(polynomial_initialized)
 	{
 		cout<<"Warning. Overwriting polynomial coefficients!";
 	}
+#endif
 
 	polynomial_coefficients = coefficients;
 	polynomial_initialized=true;
@@ -113,16 +114,19 @@ void element::set_polynomial(Mat<double> coefficients)
 
 Col<double> element::get_coefficients()
 {
+#ifdef ERROR_CHECKING
 	if(!element_solved)
 	{
 		cout << "Error. Returning incorrect coefficients.";
 	}
+#endif
 
 	return element_coefficients;
 }
 
 void element::set_coefficients(Col<double> coefficients)
 {
+#ifdef ERROR_CHECKING
 	if(!polynomial_initialized)
 	{
 		cout << "Error.  Cannot set element coefficients, polynomial is unititialized.";
@@ -133,6 +137,7 @@ void element::set_coefficients(Col<double> coefficients)
 		cout << "Error.  Cannot set element coefficients, wrong number of elements.";
 		return;
 	}
+#endif
 
 	element_coefficients = coefficients;
 }
@@ -165,7 +170,10 @@ double element::at(double x, unsigned int n)
 double element::at_lcl(double x)
 {
 	if(x<-1 || x>1)
+	{
 		return 0;
+	}
+
 	Mat<double> ret = (variable_row(x, polynomial_coefficients.n_cols)*polynomial_coefficients)*element_coefficients;
 	return ret(0,0);
 }
@@ -173,7 +181,10 @@ double element::at_lcl(double x)
 double element::at_lcl(double x, unsigned int n)
 {
 	if(x<-1 || x>1)
+	{	
 		return 0;
+	}
+
 	Mat<double> ret = (variable_row(x, polynomial_coefficients.n_cols)*polynomial_coefficients)*element_coefficients;
 	return ret(0,0);
 }
@@ -184,16 +195,17 @@ Row<double> element::variable_row(double x, unsigned int size)
 
 	ret(0) = 1;
 
-	if(size>0)
+#ifdef ERROR_CHECKING
+	if(size<=0)
 	{
-		for(int i=1; i<size; i++)
-		{
-			ret(i) = pow(x, (double)(i));
-		}
+		cout << "Error. Can't make variable row of size <= 0.";
+		return ret;
 	}
-	else
+#endif
+
+	for(int i=1; i<size; i++)
 	{
-		cout<<"You're an idiot!";
+		ret(i) = pow(x, (double)(i));
 	}
 
 	return ret;
@@ -203,66 +215,73 @@ Row<double> element::variable_row(double x, unsigned int size, unsigned int n)
 {
 	Row<double> ret(size);
 
-	if(size>0)
+#ifdef ERROR_CHECKING
+	if(size<=0)
 	{
-		for(int i=0; i<size; i++)
-		{
-			if(i<n)
-				ret(i) = 0;		//derivative of a constant
-			if(i==n)
-				ret(i) = 1;		//is the original constant
-			if(i>n)
-				ret(i) = pow(x, (double)(i-n))*factorial(i)/factorial(i-n);	//add in the correct values
-		}
+		cout << "Error.  Cannot create variable row of size <= 0";
+		return ret;
 	}
-	else
+#endif
+	for(int i=0; i<size; i++)
 	{
-		cout<<"DBAD";
+		if(i<n)
+			ret(i) = 0;		//derivative of a constant
+		if(i==n)
+			ret(i) = 1;		//is the original constant
+		if(i>n)
+			ret(i) = pow(x, (double)(i-n))*factorial(i)/factorial(i-n);	//add in the correct values
 	}
 
 	return ret;
 }
 
-struct function_mat_args{unsigned int m; unsigned int n; unsigned int n_der; element* ptr;};
-
-double function_mat_for_real(double x, void* param)
+double element::energy_function_wrapper(double x, void* param)
 {
 	function_mat_args* args = (function_mat_args*)param;
 	
-	return args->ptr->function_mat(x, args->m, args->n, args->n_der);
+	//leading x^2 for calculating hydrogen atom
+	return /*pow(args->ptr->lcl_to_glbl(x),2)*/(args->ptr->function_mat(x, args->m, args->n, args->n_der));
 }
 
-struct hamiltonian_function_mat_args{unsigned int m; unsigned int n; unsigned int n_der; element* ptr; double (*potential)(double x, void* args); void* potential_args;};
-
-double hamiltonian_function_mat(double x, void* params)
+double element::hamiltonian_function_wrapper(double x, void* params)
 {
 	hamiltonian_function_mat_args* param = (hamiltonian_function_mat_args*)params;
 
 	function_mat_args other_param={param->m, param->n, param->n_der+1, param->ptr};		//set up to get the second derivative of function mat
 	double h = param->ptr->get_top()-param->ptr->get_bottom();				//calculate scaling factor
-	double T = 4/h/h*function_mat_for_real(x, &other_param);				//calculate kinetic energey ie. 1/h^2(p*')(p')
+	double T = 4/h/h*element::energy_function_wrapper(x, &other_param);				//calculate kinetic energey ie. 1/h^2(p*')(p')
 	
 	other_param.n_der=param->n_der;
-	return T + function_mat_for_real(x, &other_param)*param->potential(param->ptr->lcl_to_glbl(x), param->potential_args);		//add it to the potential energy and return
+	return T + element::energy_function_wrapper(x, &other_param)*param->potential(param->ptr->lcl_to_glbl(x), param->potential_args);		//add it to the potential energy and return
 }
 
 Mat<double> element::lcl_hamiltonian_mat(double (*potential)(double x, void* args), void* args, gsl_integration_glfixed_table* table)
 {
-	Mat<double> ret(nnodes*nDOF, nnodes*nDOF);
+	Mat<double> ret(polynomial_coefficients.n_rows, polynomial_coefficients.n_rows);
 
+#ifdef ERROR_CHECKING
+	if(!polynomial_initialized)
+	{
+		cout << "Error. Trying to create hamiltonian without initialized polynomials";
+	}
+#endif
+
+	//create the function to be integrated along with its arguments
 	gsl_function integrate_me;
 	struct hamiltonian_function_mat_args integrate_me_params={0, 0, 0, this, potential, args};
 
-	integrate_me.function	= &hamiltonian_function_mat;
+	//insert into the gsl function data structure
+	integrate_me.function	= &element::hamiltonian_function_wrapper;
 	integrate_me.params	= &integrate_me_params;
 
-	for(int i=0; i<nnodes*nDOF; i++)
+	//go through each element of the matrix and perform the integration on the corresponding pair of function
+	for(int i=0; i<polynomial_coefficients.n_rows; i++)
 	{
-		integrate_me_params.m=i;
-		for(int j=0; j<nnodes*nDOF; j++)
+		integrate_me_params.m=i;		//use the i'th row
+		for(int j=0; j<polynomial_coefficients.n_rows; j++)
 		{
-			integrate_me_params.n=j;
-			ret(i, j)=(top-bottom)/2*gsl_integration_glfixed(&integrate_me, -1, 1, table);
+			integrate_me_params.n=j;	//and the j'th collumn
+			ret(i, j)=(top-bottom)/2*gsl_integration_glfixed(&integrate_me, -1, 1, table);	//set the return matrix to the result of integration
 		}
 	}
 
@@ -271,18 +290,21 @@ Mat<double> element::lcl_hamiltonian_mat(double (*potential)(double x, void* arg
 
 Mat<double> element::lcl_energy_mat(gsl_integration_glfixed_table* table)
 {
-	Mat<double> ret(nnodes*nDOF, nnodes*nDOF);	//return matrix
+	Mat<double> ret(polynomial_coefficients.n_rows, polynomial_coefficients.n_rows);	//return matrix
 
+	//set up the function and its arguments
 	gsl_function integrate_me;
 	struct function_mat_args args = {0, 0, 0, this};
 
-	integrate_me.function = &function_mat_for_real;
+	//insert the corresponding wrapper function
+	integrate_me.function = &element::energy_function_wrapper;
 	integrate_me.params   = &args;
 
-	for(int i=0; i<nnodes*nDOF; i++)
+	//integrate
+	for(int i=0; i<polynomial_coefficients.n_rows; i++)
 	{
 		args.m=i;
-		for(int j=0; j<nnodes*nDOF; j++)
+		for(int j=0; j<polynomial_coefficients.n_rows; j++)
 		{
 			args.n=j;
 			ret(i, j)=(top-bottom)/2*gsl_integration_glfixed(&integrate_me, -1, 1, table);
