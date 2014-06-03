@@ -5,7 +5,7 @@ element.o: element.cpp  element.h
 	g++ -c element.cpp
 
 main.o: main.cpp element.h
-	g++ -c main.cpp
+	g++ -c main.cpp 
 
 wavefunction.o: element.h  wavefunction.cpp wavefunction.h
 	g++ -c wavefunction.cpp

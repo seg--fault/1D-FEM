@@ -21,18 +21,25 @@ double factorial(int n)
 
 element::element()
 {
+	//Set up safe defaults for top and bottom until they are assigned
 	top=1;
 	bottom=-1;
 
-	polynomial_initialized=false;	//the polynomial matrix starts out uninitialized
+	//The polynomial and element haven't been found yet
+	polynomial_initialized=false;
 	element_solved=false;
 }
 
 element::element(unsigned int DOF, vector<double> nodes, double arg_bottom, double arg_top)
 {
+	//Set the top and bottom bounds
 	top = arg_top;
 	bottom = arg_bottom;
 
+	//Debugging...
+	cout << "Creating element with top = " << top << " and bottom = " << bottom << "\n";
+
+	//The polynomial and element haven't been solved yet
 	polynomial_initialized=false;
 	element_solved=false;
 
@@ -71,20 +78,25 @@ bool element::initialize_polynomial(unsigned int DOF, vector<double> nodes)
 	}
 #endif
 
-	Mat<double> system(DOF*nodes.size(), DOF*nodes.size());;				//set up a matrix to fill with our values
+	//The matrix that we will invert to find the polynomial coefficients
+	Mat<double> system(DOF*nodes.size(), DOF*nodes.size());;
 
+	//Go through the rows and fill them in
 	for(int i=0; i<nodes.size(); i++)
 	{
 		for(int j=0; j<DOF; j++)
 		{
-			system.row(i*DOF+j) = variable_row(nodes.at(i), DOF*nodes.size(), j);	//insert the correct coefficients
+			//Fill it in with the polynomial variables at the node
+			system.row(i*DOF+j) = variable_row(glbl_to_lcl(nodes.at(i)), DOF*nodes.size(), j);
 		}
 	}
 
-	polynomial_coefficients = system.i();	//invert the matrix to find the polynomial coefficients
+	//Invert the matrix to solve for the coefficients
+	polynomial_coefficients = system.i();
 
-	polynomial_initialized = true;		//the polynomial has been initialized
-	return true;				//we succeeded
+	//The polynomial has now been initialized
+	polynomial_initialized = true;	
+	return true;		
 }
 
 Mat<double> element::get_polynomial()
@@ -237,6 +249,7 @@ Row<double> element::variable_row(double x, unsigned int size, unsigned int n)
 
 double element::energy_function_wrapper(double x, void* param)
 {
+	//Create a pointer used in accessing arguments
 	function_mat_args* args = (function_mat_args*)param;
 	
 	//leading x^2 for calculating hydrogen atom
@@ -245,18 +258,27 @@ double element::energy_function_wrapper(double x, void* param)
 
 double element::hamiltonian_function_wrapper(double x, void* params)
 {
+	//Set up the arguments pointer and a scaling factor used for the transition from global to local coordinates
 	hamiltonian_function_mat_args* param = (hamiltonian_function_mat_args*)params;
+	double h = param->ptr->get_top()-param->ptr->get_bottom();				
 
-	function_mat_args other_param={param->m, param->n, param->n_der+1, param->ptr};		//set up to get the second derivative of function mat
-	double h = param->ptr->get_top()-param->ptr->get_bottom();				//calculate scaling factor
-	double T = 4/h/h*element::energy_function_wrapper(x, &other_param);				//calculate kinetic energey ie. 1/h^2(p*')(p')
+	//Feed the arguments from this function into the arguments required for the energy function
+	function_mat_args other_param={param->m, param->n, param->n_der+1, param->ptr};
+
+	//Calculate the term in the action corresponding to kinetic energy
+	double T = 4/h/h*element::energy_function_wrapper(x, &other_param);
 	
+	//Change to a first derivative and calculate the the term in the action from the potential energy
 	other_param.n_der=param->n_der;
-	return T + element::energy_function_wrapper(x, &other_param)*param->potential(param->ptr->lcl_to_glbl(x), param->potential_args);		//add it to the potential energy and return
+	double V = element::energy_function_wrapper(x, &other_param)*param->potential(param->ptr->lcl_to_glbl(x), param->potential_args);
+
+	//Add the potential action to the kinetic action and return them
+	return T + V;
 }
 
 Mat<double> element::lcl_hamiltonian_mat(double (*potential)(double x, void* args), void* args, gsl_integration_glfixed_table* table)
 {
+	//Initialize a return matrix
 	Mat<double> ret(polynomial_coefficients.n_rows, polynomial_coefficients.n_rows);
 
 #ifdef ERROR_CHECKING
@@ -277,20 +299,28 @@ Mat<double> element::lcl_hamiltonian_mat(double (*potential)(double x, void* arg
 	//go through each element of the matrix and perform the integration on the corresponding pair of function
 	for(int i=0; i<polynomial_coefficients.n_rows; i++)
 	{
-		integrate_me_params.m=i;		//use the i'th row
+		integrate_me_params.m=i;	
 		for(int j=0; j<polynomial_coefficients.n_rows; j++)
 		{
-			integrate_me_params.n=j;	//and the j'th collumn
-			ret(i, j)=(top-bottom)/2*gsl_integration_glfixed(&integrate_me, -1, 1, table);	//set the return matrix to the result of integration
+			//Integrate the ith times the jth polynomials
+			integrate_me_params.n=j;
+			ret(i, j)=(top-bottom)/2*gsl_integration_glfixed(&integrate_me, -1, 1, table);
 		}
 	}
 
+	//Debugging...
+	//cout << "lcl hamiltonian mat for <" << bottom << ", " << top << ">:\n";
+	//ret.print();
+	//cout <<"\n";
+
+	//Hand back the results
 	return ret;
 }
 
 Mat<double> element::lcl_energy_mat(gsl_integration_glfixed_table* table)
 {
-	Mat<double> ret(polynomial_coefficients.n_rows, polynomial_coefficients.n_rows);	//return matrix
+	//Create a return matrix
+	Mat<double> ret(polynomial_coefficients.n_rows, polynomial_coefficients.n_rows);
 
 	//set up the function and its arguments
 	gsl_function integrate_me;
@@ -311,11 +341,17 @@ Mat<double> element::lcl_energy_mat(gsl_integration_glfixed_table* table)
 		}
 	}
 
+	//Debugging...
+	//cout << "lcl energy matrix for <" << bottom << ", " << top << ">:\n";
+	//ret.print();
+	//cout <<"\n";
+
 	return ret;
 }
 
 double element::function_mat(double x, unsigned int m, unsigned int n, unsigned int n_der)
 {
+	//Return the nth derivative of the mth polynomial times the nth derivative of the nth polynomial at x
 	Mat<double> ret = (variable_row(x,polynomial_coefficients.n_rows, n_der)*polynomial_coefficients.col(m))%(variable_row(x,polynomial_coefficients.n_rows, n_der)*polynomial_coefficients.col(n));
 
 	return ret(0,0);
@@ -330,4 +366,9 @@ double element::get_top()
 double element::get_bottom()
 {
 	return bottom;
+}
+
+unsigned int element::size()
+{
+	return polynomial_coefficients.n_rows;
 }

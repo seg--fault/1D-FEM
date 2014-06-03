@@ -53,6 +53,7 @@ class element
 	//Read only access for private variables
 	double 		get_top();
 	double		get_bottom();
+	unsigned int 	size();
 
 	private:
 	Mat<double> 	polynomial_coefficients;	//holds the coefficients of each polynomial, one per collumn
